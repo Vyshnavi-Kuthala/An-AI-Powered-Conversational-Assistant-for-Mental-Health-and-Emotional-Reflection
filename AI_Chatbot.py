@@ -18,6 +18,7 @@ MODEL_NAME = "openai/gpt-oss-120b"
 TEMPERATURE = 0.7
 BG_IMAGE_PATH = "background .jpeg"  # Ensure this file exists in your directory
 LOGO_PATH = "emoji.png"
+PAGE_ICON="aura_robot_icon_64.png"
 
 # ---------------- HELPER FUNCTIONS ---------------- #
 def get_base64_bin(bin_file):
@@ -57,14 +58,7 @@ def set_bg_and_style():
             color: #000000 !important;
         }}
         
-        /* Sidebar Text */
-        [data-testid="stSidebar"] {{
-            background-color: #90b5f0;
-        }}
-        [data-testid="stSidebar"] * {{
-            color: #000000 !important;
-        }}
-
+        
         /* Main Chat Input Bar */
         .stChatInputContainer textarea {{
             background-color: #ffffff !important;
@@ -87,7 +81,7 @@ def set_bg_and_style():
         }}
 
          /* Hide Streamlit branding for a cleaner look */
-        #MainMenu, footer, header {{visibility: hidden;}}
+        #MainMenu, footer, header,sidebar {{visibility: hidden;}}
         </style>
         """
         st.markdown(bg_css, unsafe_allow_html=True)
@@ -113,7 +107,7 @@ def text_to_speech(text):
         return None
 
 # ---------------- INITIALIZATION ---------------- #
-st.set_page_config(page_title="AuraAssist | AI Support", layout="wide")
+st.set_page_config(page_title="AuraAssist | AI Support", layout="wide",initial_sidebar_state="collapsed",page_icon=PAGE_ICON)
 
 set_bg_and_style()
 
