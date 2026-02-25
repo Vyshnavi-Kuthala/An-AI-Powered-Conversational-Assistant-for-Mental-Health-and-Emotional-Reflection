@@ -1,364 +1,335 @@
 import streamlit as st
 import tempfile
+import base64
+import re
 from gtts import gTTS
 from gtts.tts import gTTSError
-import re
 from langchain_groq import ChatGroq
 from langchain_core.prompts import (
     ChatPromptTemplate,
-    
     HumanMessagePromptTemplate,
     MessagesPlaceholder,
     SystemMessagePromptTemplate,
 )
 from langchain_classic.memory import ConversationBufferWindowMemory
 
-
-# ---------------- CONFIG ---------------- #
+# ---------------- CONFIG & CONSTANTS ---------------- #
 MODEL_NAME = "openai/gpt-oss-120b"
-TEMPERATURE = 0.5
+TEMPERATURE = 0.7
+BG_IMAGE_PATH = "background .jpeg"  # Ensure this file exists in your directory
+LOGO_PATH = "emoji.png"
+
+# ---------------- HELPER FUNCTIONS ---------------- #
+def get_base64_bin(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+def set_bg_and_style():
+    try:
+        bin_str = get_base64_bin(BG_IMAGE_PATH)
+        bg_css = f"""
+        <style>
+        /* Base background setup */
+        .stApp {{
+            background-image: url("data:image/png;base64,{bin_str}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+
+        /* Force Black Text globally on all text-bearing elements */
+        html, body, [class*="st-"], .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
+            color: #fcfcfc !important;
+        }}
+
+        /* Fix Chat Container Contrast */
+        [data-testid="stChatMessage"] {{
+            background-color: #0f0202 !important; /* Higher opacity for legibility */
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 15px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }}
+
+        /* Fix Chat Avatars/Icons alignment and visibility */
+        [data-testid="stChatMessageContent"] {{
+            color: #000000 !important;
+        }}
+        
+        /* Sidebar Text */
+        [data-testid="stSidebar"] {{
+            background-color: #90b5f0;
+        }}
+        [data-testid="stSidebar"] * {{
+            color: #000000 !important;
+        }}
+
+        /* Main Chat Input Bar */
+        .stChatInputContainer textarea {{
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            border-radius: 10px !important;
+        }}
+
+        /* Button consistency */
+        .stButton>button {{
+            background-color: #0f0202 !important;
+            color: #ffffff !important;
+            border-radius: 8px;
+            border: none;
+            transition: 0.2s ease;
+        }}
+        
+        .stButton>button:hover {{
+            background-color: #333333 !important;
+            transform: scale(1.02);
+        }}
+
+         /* Hide Streamlit branding for a cleaner look */
+        #MainMenu, footer, header {{visibility: hidden;}}
+        </style>
+        """
+        st.markdown(bg_css, unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.error("Background image not found. Ensure background.jpg is in the directory.")
 
 
-# ---------------- PAGE SETUP ---------------- #
-st.set_page_config(
-    page_title="AuraAssist",
-    page_icon="aura_robot_icon_64.png",  # put file in project folder
-    layout="wide"
-)
 
-import base64
-
-# ---- LOAD ICON ----
-def load_icon_base64(path):
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
-icon_base64 = load_icon_base64("aura_robot_icon_64.png")
-# ------------------- APPLY MAIN BACKGROUND ------------------- #
-
-st.markdown("""
-<style>
-
-/* Sidebar */
-[data-testid="stSidebar"] {
-    background-color: #ffa366;
-    color: #2B1A17;
-}
-
-/* Main middle chat area */
-section.main > div {
-    background-color: #ffb380;
-    padding: 2rem;
-    border-radius: 15px;
-    color: #2B1A17;
-}
-
-/* Top & Bottom background */
-.stApp {
-    background-color:;
-}
-
-/* Input bar */
-chat-input {
-    background-color:  #ff8533 !important;
-    color: #2B1A17 !important;
-    border-radius: 20px;
-    border: none;
-}
-
-/* Buttons */
-.stButton>button {
-    background-color: #ffffff !important;
-    color: #2B1A17 !important;
-    border-radius: 15px;
-    border: none;
-}
-
-/* Optional: Chat message bubble */
-.stChatMessage {
-    background-color: #ffa366 !important;
-    border-radius: 12px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-
-
-col1, col2 = st.columns([1,8])  # Adjust ratio if needed
-
-with col1:
-    st.image("emoji.png", width=100)
-
-with col2:
-    st.title("AuraAssist")
-
-st.caption("A supportive space for reflection. Not a replacement for professional care.")
-
-# ---------------- TEXT CLEANING FOR TTS ---------------- #
 def clean_text_for_tts(text):
-    if "---" in text:
-        text = text.split("---")[0]
-
+    text = text.split("---")[0] if "---" in text else text
     text = re.sub(r'[⭐☆*#\-—_`]', '', text)
     text = re.sub(r'[^\x00-\x7F]+', '', text)
-    text = re.sub(r'\s+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
 
-    return text.strip()
-
-
-# ---------------- TEXT TO SPEECH ---------------- #
 def text_to_speech(text):
-    cleaned_text = clean_text_for_tts(text)
-
-    # Limit large text (Google may reject long input)
-    cleaned_text = cleaned_text[:500]
-
+    cleaned_text = clean_text_for_tts(text)[:500]
     try:
         tts = gTTS(text=cleaned_text, lang="en")
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         tts.save(temp_file.name)
         return temp_file.name
-
-    except gTTSError as e:
-        print("TTS Connection Error:", e)
+    except gTTSError:
         return None
 
+# ---------------- INITIALIZATION ---------------- #
+st.set_page_config(page_title="AuraAssist | AI Support", layout="wide")
 
-# ---------------- SIDEBAR PROFILE ---------------- #
-st.sidebar.header("👤 Your Profile")
-api_key= st.sidebar.text_input("Groq API Key", type="password",help="Enter your Groq API key to enable the AI assistant. You can get one from https://console.groq.com/keys")
-if not api_key:
-    st.warning("Please enter your Groq API key to use the AI assistant features.")
-    
-name = st.sidebar.text_input("Name")
-age = st.sidebar.number_input("Age", min_value=10, max_value=100, value=25)
-gender = st.sidebar.selectbox("Gender", ["Prefer not to say", "Male", "Female", "Other"])
-occupation = st.sidebar.text_input("Occupation")
-addictions = st.sidebar.text_input("Addictions (if any)")
-stress_triggers = st.sidebar.text_input("Main Stress Triggers")
-previous_treatment = st.sidebar.text_input("Previous Treatment (if any)")
+set_bg_and_style()
 
-if st.sidebar.button("Save Profile"):
-    st.session_state.user_profile = {
-        "name": name,
-        "age": age,
-        "gender": gender,
-        "occupation": occupation,
-        "addictions": addictions,
-        "stress_triggers": stress_triggers,
-        "previous_treatment": previous_treatment,
-    }
-    st.sidebar.success("Profile saved successfully!")
-
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
 if "user_profile" not in st.session_state:
     st.session_state.user_profile = {}
-
-# ---------------- MEMORY ---------------- #
-if "memory" not in st.session_state:
-    st.session_state.memory = ConversationBufferWindowMemory(
-        k=6,
-        return_messages=True,
-        memory_key="chat_history"
-    )
-
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "memory" not in st.session_state:
+    st.session_state.memory = ConversationBufferWindowMemory(k=6, return_messages=True, memory_key="chat_history")
 
-# ---------------- LLM INIT (Only Once) ---------------- #
-try:
-     if "llm" not in st.session_state:
-        st.session_state.llm = ChatGroq(
-            groq_api_key=api_key,
-            model_name=MODEL_NAME,
-            temperature=TEMPERATURE
-        )
-except Exception as e:
-    st.error("Error initializing LLM. Please check your API key and connection.")
-    print(e)
+# ---------------- PAGE 1: HOME ---------------- #
+if st.session_state.page == "Home":
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image(LOGO_PATH, width=150)
+        st.title("Welcome to AuraAssist")
+        st.markdown("""
+        ### Your Intelligent Emotional Companion
+        AuraAssist leverages Large Language Models and Sentiment Analysis to provide a supportive space for reflection. 
+        Whether you are managing daily stress or seeking a moment of mindfulness, our AI is here to listen.
+        
+        **Key Features:**
+        - 🧠 **Contextual Understanding**: Personalized support based on your profile.
+        - 🎙️ **Voice Synthesis**: Listen to responses for a more human experience.
+        - 🛡️ **Crisis Detection**: Safety-first architecture with emergency resources.
+        """)
+        
+        if st.button("Get Started →"):
+            st.session_state.page = "Profile"
+            st.rerun()
 
-# ---------------- SYSTEM PROMPT ---------------- #
-system_prompt = """
-You are a compassionate, emotionally intelligent mental health support assistant with a friendly, slightly sarcastic, human-like tone.
+# ---------------- PAGE 2: PROFILE FORM ---------------- #
+elif st.session_state.page == "Profile":
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.subheader("👤 Personalize Your Experience")
+        st.info("Your data helps the AI tailor its supportive techniques to your specific lifestyle.")
+        
+        with st.form("profile_form"):
+            api_key = st.text_input("Groq API Key", type="password")
+            name = st.text_input("Full Name")
+            age = st.number_input("Age", 10, 100, 25)
+            occupation = st.text_input("Occupation")
+            triggers = st.text_area("What are your main stress triggers?")
+            addictions = st.text_input("Addictions or habits you're managing (optional)")
+            
+            submit = st.form_submit_button("Initialize AuraAssist")
+            
+            if submit:
+                if not api_key:
+                    st.error("API Key is required to proceed.")
+                else:
+                    st.session_state.user_profile = {
+                        "name": name, "age": age, "occupation": occupation,
+                        "stress_triggers": triggers, "addictions": addictions
+                    }
+                    st.session_state.api_key = api_key
+                    # Init LLM
+                    st.session_state.llm = ChatGroq(
+                        groq_api_key=api_key,
+                        model_name=MODEL_NAME,
+                        temperature=TEMPERATURE
+                    )
+                    st.session_state.page = "Chat"
+                    st.rerun()
 
-Use retrieved knowledge naturally — do not depend on it completely.
+# ---------------- PAGE 3: CHAT INTERFACE ---------------- #
+elif st.session_state.page == "Chat":
+    st.sidebar.title("AuraAssist")
+    st.sidebar.write(f"Hello, {st.session_state.user_profile.get('name', 'Friend')}!")
+    if st.sidebar.button("Reset Session"):
+        st.session_state.clear()
+        st.rerun()
+    
+    # Prompt Setup (reusing your logic)
+    system_prompt = """
+                You are a compassionate, emotionally intelligent mental health support assistant with a friendly, slightly sarcastic, human-like tone.
 
-Retrieved Knowledge:
-{context}
+                Use retrieved knowledge naturally — do not depend on it completely.
 
-User Profile:
-{profile}
+                Retrieved Knowledge:
+                {context}
 
-Conversation History:
-{chat_history}
+                User Profile:
+                {profile}
 
-User Message:
-{question}
+                Conversation History:
+                {chat_history}
 
-----------------------------------------------------
-STEP 1: SEVERITY ANALYSIS
-----------------------------------------------------
-Analyze the user's message and internally classify it as:
+                User Message:
+                {question}
 
-• MILD → Occasional stress, low mood, manageable symptoms  
-• MODERATE → Persistent distress affecting work, relationships, routine  
-• SEVERE → Debilitating symptoms, suicidal ideation, psychosis, inability to function  
+                ----------------------------------------------------
+                STEP 1: SEVERITY ANALYSIS
+                ----------------------------------------------------
+                Analyze the user's message and internally classify it as:
 
-Do NOT explicitly label the severity unless necessary.
-Adjust response depth accordingly.
+                • MILD → Occasional stress, low mood, manageable symptoms  
+                • MODERATE → Persistent distress affecting work, relationships, routine  
+                • SEVERE → Debilitating symptoms, suicidal ideation, psychosis, inability to function  
 
-----------------------------------------------------
-STEP 2: RESPONSE RULES
-----------------------------------------------------
-- Identify and reflect the user’s emotions
-- Be empathetic and supportive
-- Friendly, warm, slightly playful tone and sarcastic humor
-- Never diagnose medical conditions
-- Never prescribe medication
-- Never shame addiction
-- If prior treatment exists, acknowledge progress respectfully
-- Only respond to mental health or emotional support topics.
-- Refuse any unrelated request with a short message and redirect back to support.
+                Do NOT explicitly label the severity unless necessary.
+                Adjust response depth accordingly.
 
-
-----------------------------------------------------
-STEP 3: STAGE-BASED SUPPORT
-----------------------------------------------------
-
-If MILD:
-- Suggest lifestyle adjustments (sleep, exercise, journaling, hobbies)
-- Offer grounding, breathing, mindfulness
-- Encourage social connection
-- Provide one small practical coping action
-
-
-If MODERATE:
-- Encourage structured routine and small achievable daily goals.
-- Create a personalized 7-day or 14-day simple routine plan based on the user's emotional condition.
-  (Include sleep schedule, small tasks, light physical activity, reflection/journaling, social connection, and relaxation practice.)
-- Combine coping tools + structured support.
-- Gently explain that if there is no noticeable improvement after consistently following the routine plan,
-  suggest professional therapy (CBT, MBCT, IPT) or consulting a licensed mental health professional in India.
-- Mention Indian-based professional support only if needed (psychologist, psychiatrist, or mental health hospitals in India).
-- Do not diagnose or prescribe medication.
-- Keep the suggestion respectful, supportive, and non-forceful.
+                ----------------------------------------------------
+                STEP 2: RESPONSE RULES
+                ----------------------------------------------------
+                - Identify and reflect the user’s emotions
+                - Be empathetic and supportive
+                - Friendly, warm, slightly playful tone and sarcastic humor
+                - Never diagnose medical conditions
+                - Never prescribe medication
+                - Never shame addiction
+                - If prior treatment exists, acknowledge progress respectfully
+                - Only respond to mental health or emotional support topics.
+                - Refuse any unrelated request with a short message and redirect back to support.
 
 
-If SEVERE:
-- Encourage immediate professional help
-- Suggest reaching trusted person
-- Emphasize safety planning
-- Stay calm, grounding, reassuring
+                ----------------------------------------------------
+                STEP 3: STAGE-BASED SUPPORT
+                ----------------------------------------------------
 
-CRISIS:
-If self-harm or suicide is mentioned:
-Encourage contacting Indian crisis helpline:
-Tele-MANAS (National Mental Health Helpline) : 14416 / 1800-891-4416 
-Mano Darpan (Students & Families) : 8448-440-632 
-KIRAN: 1800-599-0019
-Emergency response (Police, Ambulance) : 112 
+                If MILD:
+                - Suggest lifestyle adjustments (sleep, exercise, journaling, hobbies)
+                - Offer grounding, breathing, mindfulness
+                - Encourage social connection
+                - Provide one small practical coping action
 
-----------------------------------------------------
-STEP 4: RESPONSE STRUCTURE
-----------------------------------------------------
-1. Emotion-based opening (empathetic + human)
-2. Reflect understanding
-3. Personalized insight
-4. Small actionable coping step
-5. Gentle encouragement toward appropriate level of support
-6. Open-ended question to continue conversation
-7. Use emojis naturally
-8. At the end of every(only when real emotion is there) response, add an stress intensity score (1–10) based on the user’s current message.
-   - Do not explain the score.
-   Format:
-   ---
-   Stress Intensity: X/10
-   ⭐⭐⭐⭐⭐⭐☆☆☆☆
-   ---
-   Use exactly 10 stars.
-   Filled stars (⭐) = score.
-   Empty stars (☆) = remaining.
-   Place this only at the end.
-"""
 
-prompt_template = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(system_prompt),
-    MessagesPlaceholder(variable_name="chat_history"),
-    HumanMessagePromptTemplate.from_template("{input}")
-])
+                If MODERATE:
+                - Encourage structured routine and small achievable daily goals.
+                - Create a personalized 7-day or 14-day simple routine plan based on the user's emotional condition.
+                (Include sleep schedule, small tasks, light physical activity, reflection/journaling, social connection, and relaxation practice.)
+                - Combine coping tools + structured support.
+                - Gently explain that if there is no noticeable improvement after consistently following the routine plan,
+                suggest professional therapy (CBT, MBCT, IPT) or consulting a licensed mental health professional in India.
+                - Mention Indian-based professional support only if needed (psychologist, psychiatrist, or mental health hospitals in India).
+                - Do not diagnose or prescribe medication.
+                - Keep the suggestion respectful, supportive, and non-forceful.
 
-# ---------------- CRISIS DETECTION ---------------- #
-def detect_crisis(text):
-    crisis_keywords = [
-        "suicide", "kill myself", "end my life",
-        "self harm", "hurt myself", "don't want to live"
-    ]
-    return any(keyword in text.lower() for keyword in crisis_keywords)
 
-# ---------------- LLM RESPONSE FUNCTION ---------------- #
-def process_llm_response(user_input):
+                If SEVERE:
+                - Encourage immediate professional help
+                - Suggest reaching trusted person
+                - Emphasize safety planning
+                - Stay calm, grounding, reassuring
 
-    profile = st.session_state.user_profile
+                CRISIS:
+                If self-harm or suicide is mentioned:
+                Encourage contacting Indian crisis helpline:
+                Tele-MANAS (National Mental Health Helpline) : 14416 / 1800-891-4416 
+                Mano Darpan (Students & Families) : 8448-440-632 
+                KIRAN: 1800-599-0019
+                Emergency response (Police, Ambulance) : 112 
 
-    profile_context = f"""
-Name: {profile.get("name", "Not provided")}
-Age: {profile.get("age", "Not provided")}
-Gender: {profile.get("gender", "Not provided")}
-Occupation: {profile.get("occupation", "Not provided")}
-Addictions: {profile.get("addictions", "Not provided")}
-Stress Triggers: {profile.get("stress_triggers", "Not provided")}
-Previous Treatment: {profile.get("previous_treatment", "Not provided")}
-"""
+                ----------------------------------------------------
+                STEP 4: RESPONSE STRUCTURE
+                ----------------------------------------------------
+                1. Emotion-based opening (empathetic + human)
+                2. Reflect understanding
+                3. Personalized insight
+                4. Small actionable coping step
+                5. Gentle encouragement toward appropriate level of support
+                6. Open-ended question to continue conversation
+                7. Use emojis naturally
+                8. At the end of every(only when real emotion is there) response, add an stress intensity score (1–10) based on the user’s current message.
+                - Do not explain the score.
+                Format:
+                ---
+                Stress Intensity: X/10
+                ⭐⭐⭐⭐⭐⭐☆☆☆☆
+                ---
+                Use exactly 10 stars.
+                Filled stars (⭐) = score.
+                Empty stars (☆) = remaining.
+                Place this only at the end.
+                """
+    
+    prompt_template = ChatPromptTemplate.from_messages([
+        SystemMessagePromptTemplate.from_template(system_prompt),
+        MessagesPlaceholder(variable_name="chat_history"),
+        HumanMessagePromptTemplate.from_template("{input}")
+    ])
 
-    # Crisis immediate warning banner
-    if detect_crisis(user_input):
-        st.warning("If you're in immediate danger, please contact your local emergency number or a suicide prevention hotline.")
+    # Display Messages
+    for i, msg in enumerate(st.session_state.messages):
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                if st.button("🔊 Play", key=f"audio_{i}"):
+                    path = text_to_speech(msg["content"])
+                    if path: st.audio(path)
 
-    llm = st.session_state.llm
-    chain = prompt_template | llm
+    # Input logic
+    if prompt := st.chat_input("How are you feeling today?"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    memory_vars = st.session_state.memory.load_memory_variables({})
-
-    response = chain.invoke({
-        "input": user_input,
-        "profile": profile_context,
-        "chat_history": memory_vars["chat_history"],
-        "context": "",
-        "question": user_input
-    })
-
-    st.session_state.memory.save_context(
-        {"input": user_input},
-        {"output": response.content}
-    )
-
-    return response.content
-
-# ---------------- CHAT DISPLAY ---------------- #
-for i, message in enumerate(st.session_state.messages):
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-        if message["role"] == "assistant":
-            # if st.button("🔊 Read Aloud", key=f"voice_{i}"):
-                audio_bytes = text_to_speech(message["content"])
-                st.audio(audio_bytes, format="audio/mp3")
-
-# ---------------- CHAT INPUT ---------------- #
-if prompt := st.chat_input("Share your thoughts, feelings, or anything you'd like to talk about..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Reflecting on your words..."):
-            try:
-                response = process_llm_response(prompt)
-                st.markdown(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing..."):
+                # LLM Chain execution
+                chain = prompt_template | st.session_state.llm
+                mem = st.session_state.memory.load_memory_variables({})
+                
+                res = chain.invoke({
+                    "input": prompt,
+                    "profile": str(st.session_state.user_profile),
+                    "chat_history": mem["chat_history"],
+                    "context": "",
+                    "question": prompt
+                })
+                
+                st.markdown(res.content)
+                st.session_state.messages.append({"role": "assistant", "content": res.content})
+                st.session_state.memory.save_context({"input": prompt}, {"output": res.content})
                 st.rerun()
-            except Exception as e:
-                st.error("I'm having trouble connecting right now. Please try again.")
-                print(e)
-
