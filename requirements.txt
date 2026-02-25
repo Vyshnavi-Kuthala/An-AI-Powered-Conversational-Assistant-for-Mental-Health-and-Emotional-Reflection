@@ -1,8 +1,9 @@
 streamlit
 python-dotenv
-langchain_groq
+langchain-groq
 scikit-learn
 numpy
 pandas
 langchain
 gtts
+langchain-classic
