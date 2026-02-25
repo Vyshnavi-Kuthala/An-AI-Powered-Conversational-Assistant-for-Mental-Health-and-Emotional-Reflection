@@ -47,7 +47,7 @@ st.markdown("""
 
 /* Main middle chat area */
 section.main > div {
-    background-color: #120201 ;
+    background-color: #ffb380;
     padding: 2rem;
     border-radius: 15px;
     color: #2B1A17;
@@ -55,12 +55,12 @@ section.main > div {
 
 /* Top & Bottom background */
 .stApp {
-    background-color: #ffffff;
+    background-color:;
 }
 
 /* Input bar */
 chat-input {
-    background-color: #f5f6f7 !important;
+    background-color:  #ff8533 !important;
     color: #2B1A17 !important;
     border-radius: 20px;
     border: none;
@@ -361,4 +361,3 @@ if prompt := st.chat_input("Share your thoughts, feelings, or anything you'd lik
             except Exception as e:
                 st.error("I'm having trouble connecting right now. Please try again.")
                 print(e)
-
