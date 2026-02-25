@@ -41,7 +41,7 @@ st.markdown("""
 
 /* Sidebar */
 [data-testid="stSidebar"] {
-    background-color:  #ff8533;
+    background-color: #ffa366;
     color: #2B1A17;
 }
 
@@ -361,3 +361,4 @@ if prompt := st.chat_input("Share your thoughts, feelings, or anything you'd lik
             except Exception as e:
                 st.error("I'm having trouble connecting right now. Please try again.")
                 print(e)
+
